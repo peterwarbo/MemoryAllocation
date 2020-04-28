@@ -17,9 +17,26 @@ class ViewController: UIViewController, UINavigationControllerDelegate {
     
     var storage: Set<AnyCancellable> = []
     
+    let publisher = PassthroughSubject<UIImage, Never>()
+    lazy var pipeline = publisher.flatMap {image in
+        Future<UIImage, Never> { promise in
+            self.queue.asyncAfter(deadline: .now() + 0.5) {
+                promise(.success(image))
+            }
+        }
+    }
+    
     override func viewDidLoad() {
         super.viewDidLoad()
-        // Do any additional setup after loading the view.
+        self.pipeline
+            .receive(on: DispatchQueue.main)
+            .sink(receiveCompletion: { (completion) in
+            }) { (value) in
+                print("finished processing image")
+                self.image = value
+            }
+            .store(in: &self.storage)
+
     }
 
     @IBAction func didTapPickImage(_ sender: UIButton) {
@@ -33,32 +50,9 @@ extension ViewController: UIImagePickerControllerDelegate {
     
     func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey : Any]) {
         dismiss(animated: true)
-        queue.async {
-            
-            guard let image = info[UIImagePickerController.InfoKey.originalImage] as? UIImage else { return }
-            
-            Process.longProcess()
-                .sink(receiveCompletion: { (completion) in
-                    
-                }) { [weak self] (value) in
-                    self?.image = image
-                }
-                .store(in: &self.storage)
-        }
+        guard let image = info[UIImagePickerController.InfoKey.originalImage] as? UIImage else { return }
+        print("got image")
+        self.publisher.send(image)
     }
-    
 }
 
-enum Process {
-    
-    typealias Handler = (Result<Void, Swift.Error>) -> Void
-    static func longProcess(handler: @escaping Handler) {
-        DispatchQueue.global().asyncAfter(deadline: DispatchTime.now() + 0.5) {
-            handler(.success(()))
-        }
-    }
-    
-    static func longProcess() -> AnyPublisher<Void, Swift.Error> {
-        Future { Self.longProcess(handler: $0) }.eraseToAnyPublisher()
-    }
-}
